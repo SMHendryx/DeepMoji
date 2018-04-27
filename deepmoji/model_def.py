@@ -109,10 +109,10 @@ def deepmoji_multilabel_architecture(nb_classes, nb_tokens, maxlen, feature_outp
         nb_tokens: Number of tokens in the dataset (i.e. vocabulary size).
         maxlen: Maximum length of a token.
         feature_output: If True the model returns the penultimate
-                        feature vector rather than Softmax probabilities
+                        feature vector rather than sigmoid probabilities
                         (defaults to False).
         embed_dropout_rate: Dropout rate for the embedding layer.
-        final_dropout_rate: Dropout rate for the final Softmax layer.
+        final_dropout_rate: Dropout rate for the final sigmoid layer.
         embed_l2: L2 regularization for the embedding layerl.
 
     # Returns:
@@ -168,7 +168,7 @@ def deepmoji_multilabel_architecture(nb_classes, nb_tokens, maxlen, feature_outp
         # add the attention weights to the outputs if required
         outputs.append(weights)
 
-    return Model(inputs=[model_input], outputs=outputs, name="DeepMoji")
+    return Model(inputs=[model_input], outputs=outputs, name="DeepMojiMultilabel")
 
 def deepmoji_architecture(nb_classes, nb_tokens, maxlen, feature_output=False, embed_dropout_rate=0, final_dropout_rate=0, embed_l2=1E-6, return_attention=False):
     """

@@ -5,6 +5,7 @@
    # Should be run from DeepMoji/deepmoji.
 """
 from __future__ import print_function
+import keras
 from typing import Tuple, List, Dict
 #import example_helper
 import numpy as np
@@ -81,25 +82,25 @@ def saveSubmission(predictions: pd.DataFrame, write_path:str):
     submission.to_csv(write_path, sep = '\t', index = False)
     logger.info('Wrote to %s' % write_path)
 
-def loadTrain(max_features: int, maxlen = None) -> pd.DataFrame:
+def loadTrain(max_features: int, maxlen = None) -> Tuple[np.ndarray, np.ndarray]:
 	# TODO: add path argument
     df = pd.read_csv('/Users/seanmhendryx/NeuralNets/graduate-student-project-SMHendryx/data/2018-E-c-En-train.txt', sep = '\t')
     features = df[['Tweet']]
     features = prepFeatures(features, max_features, maxlen)
     columns = ['anger', 'anticipation', 'disgust', 'fear', 'joy','love', 'optimism', 'pessimism', 'sadness', 'surprise', 'trust']
     labels = df[columns]
-    return features, labels
+    return features, labels.values
 
-def loadDev(max_features: int, maxlen = None) -> pd.DataFrame:
-	# TODO: add path argument
+def loadDev(max_features: int, maxlen = None) -> Tuple[np.ndarray, np.ndarray]:
+    # TODO: add path argument
     df = pd.read_csv('/Users/seanmhendryx/NeuralNets/graduate-student-project-SMHendryx/data/2018-E-c-En-dev.txt', sep = '\t')
     features = df[['Tweet']]
     features = prepFeatures(features, max_features, maxlen)
     columns = ['anger', 'anticipation', 'disgust', 'fear', 'joy','love', 'optimism', 'pessimism', 'sadness', 'surprise', 'trust']
     labels = df[columns]
-    return features, labels
+    return features, labels.values
 
-def prepFeatures(df: pd.DataFrame, max_vocab_size: int = 20000, maxlen= 300, colname: str = 'Tweet'):
+def prepFeatures(df: pd.DataFrame, max_vocab_size: int = 20000, maxlen= 300, colname: str = 'Tweet') -> np.ndarray:
     """
     Prep features for NLP from strings
     # reference: http://www.developintelligence.com/blog/2017/06/practical-neural-networks-keras-classifying-yelp-reviews/
@@ -107,7 +108,16 @@ def prepFeatures(df: pd.DataFrame, max_vocab_size: int = 20000, maxlen= 300, col
     tokenizer = Tokenizer(num_words=max_vocab_size)
     tokenizer.fit_on_texts(df[colname])
     sequences = tokenizer.texts_to_sequences(df[colname])
+    logger.info('Pad sequences (samples x time)')
     return pad_sequences(sequences, maxlen=maxlen)
+
+def saveModel(model: keras.Model, path: str):
+    # path where to save hdf5 model trained weights
+    model.save(path)
+
+def rbind(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+    # row binds two pandas DataFrames:
+    return pd.concat([df1, df2])
 
 #def main():
 num_classes = 11
@@ -119,7 +129,7 @@ nb_tokens = 20000
 maxlen = 80
 batch_size = 32
 
-print('Loading data...')
+logger.info('Loading data...')
 # I am here:
 X_train, y_train = loadTrain(nb_tokens, maxlen)
 colnames = list(y_train.columns)
@@ -129,26 +139,24 @@ X_test, y_test = loadDev(nb_tokens, maxlen)
 
 
 
+
 #(iX_train, iy_train), (iX_test, iy_test) = imdb.load_data(num_words=nb_tokens)
 print(len(X_train), 'train sequences')
 print(len(X_test), 'test sequences')
-
-print('Pad sequences (samples x time)')
-X_train = sequence.pad_sequences(X_train, maxlen=maxlen)
-X_test = sequence.pad_sequences(X_test, maxlen=maxlen)
 print('X_train shape:', X_train.shape)
 print('X_test shape:', X_test.shape)
 
 print('Build model...')
-model = deepmoji_multilabel_architecture(nb_classes=num_classes, nb_tokens=nb_tokens, maxlen=maxlen)
+model = deepmoji_multilabel_architecture(nb_classes=num_classes, nb_tokens=nb_tokens, maxlen=maxlen, final_dropout_rate = 0.5)
 model.summary()
 
 model.compile(loss='binary_crossentropy',
               optimizer='adam',
-              metrics=['accuracy', jaccard_score_K])
+              metrics=['binary_accuracy', jaccard_score_K])
 
 
 # Define early stopping with callbacks:
+patience = 10
 early_stopping = EarlyStopping(monitor='val_jaccard_score_K', min_delta=0, patience=patience, verbose=1, mode='max')
 callbacks = [early_stopping, GetBest(monitor='val_jaccard_score_K', verbose=1, mode='max')]
 
@@ -171,8 +179,19 @@ y_hat = maxLikelihoodToBinary(probabilities)
 # sklearn.metrics.jaccard_similarity_score(y_true, y_pred, normalize=True, sample_weight=None)
 score = jaccard_similarity_score(y_test, y_hat, normalize=True, sample_weight=None)
 logger.info('sklearn jaccard_similarity_score: %s' % score)
+# sklearn jaccard_similarity_score: 0.2169353971837042
+
+# merge train and dev:
+#X = rbind(X_test, )
+
+#Save model:
+num_epochs = GetBest.get_best_num_epochs()
+path_to_save_weights = '/Users/seanmhendryx/NeuralNets/graduate-student-project-SMHendryx/weights/E-C_en_pred_' + model.name + '_' + num_epochs + '_epochs.hdf5'
+model.save(path_to_save_weights)
+# to load: from keras.models import load_model; model = load_model(path_to_save_weights)
 
 write_path = '/Users/seanmhendryx/NeuralNets/graduate-student-project-SMHendryx/data/E-C_en_pred.txt'
-saveSubmission(y_hat, write_path)
+saveSubmission(convertToDF(y_hat, colnames), write_path)
+
 
 
