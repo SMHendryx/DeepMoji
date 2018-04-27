@@ -2,22 +2,50 @@
    This is a simple example of using the architecture without the pretrained model.
    The architecture is designed for transfer learning - it should normally
    be used with the pretrained model for optimal performance.
+   # Should be run from DeepMoji/deepmoji.
 """
 from __future__ import print_function
+from typing import Tuple, List, Dict
 #import example_helper
 import numpy as np
+import pandas as pd
 from keras.preprocessing import sequence
 from keras.datasets import imdb
 from model_def import deepmoji_multilabel_architecture
-import pandas as pd
 
-import numpy as np
-from keras import backend as K
-from typing import Tuple, List, Dict
+# Preprocessing:
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 
+# Val loss:
+from keras import backend as K
 
+# Call backs:
+from keras.callbacks import EarlyStopping, TensorBoard, Callback
+from GetBest import GetBest
+
+# Evaluate:
+from sklearn.metrics import jaccard_similarity_score
+
+import warnings
+import logging
+import sys
+
+
+# Set up logging
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+#Set up file handler:
+#fh = logging.FileHandler(os.path.basename(__file__) + str(datetime.now()).replace(" ", "_") + '.log')
+# Pipe output to stdout
+sh = logging.StreamHandler(sys.stdout)
+sh.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+sh.setFormatter(formatter)
+logger.addHandler(sh)
+
+
+# Function definitions:
 def jaccard_distance(y_true, y_pred, smooth=100):
     # References:
     # https://stackoverflow.com/questions/49284455/keras-custom-function-implementing-jaccard
@@ -45,13 +73,16 @@ def convertToDF(A: np.ndarray, colnames: List[str]) -> pd.DataFrame:
     """
     return pd.DataFrame(A, columns=colnames)
 
-def saveSubmission(predictions: pd.DataFrame):
+def saveSubmission(predictions: pd.DataFrame, write_path:str):
+	# TODO: add read path and write path:
     submission = pd.read_csv('/Users/seanmhendryx/NeuralNets/graduate-student-project-SMHendryx/data/2018-E-c-En-dev.txt', sep = '\t', usecols =['ID', 'Tweet'])
     #df_c = pd.concat([df_a.reset_index(), df_b], axis=1)
     submission = pd.concat([submission, predictions], axis = 1)
-    submission.to_csv('E-C_en_pred.txt', sep = '\t', index = False)
+    submission.to_csv(write_path, sep = '\t', index = False)
+    logger.info('Wrote to %s' % write_path)
 
 def loadTrain(max_features: int, maxlen = None) -> pd.DataFrame:
+	# TODO: add path argument
     df = pd.read_csv('/Users/seanmhendryx/NeuralNets/graduate-student-project-SMHendryx/data/2018-E-c-En-train.txt', sep = '\t')
     features = df[['Tweet']]
     features = prepFeatures(features, max_features, maxlen)
@@ -60,6 +91,7 @@ def loadTrain(max_features: int, maxlen = None) -> pd.DataFrame:
     return features, labels
 
 def loadDev(max_features: int, maxlen = None) -> pd.DataFrame:
+	# TODO: add path argument
     df = pd.read_csv('/Users/seanmhendryx/NeuralNets/graduate-student-project-SMHendryx/data/2018-E-c-En-dev.txt', sep = '\t')
     features = df[['Tweet']]
     features = prepFeatures(features, max_features, maxlen)
@@ -77,7 +109,7 @@ def prepFeatures(df: pd.DataFrame, max_vocab_size: int = 20000, maxlen= 300, col
     sequences = tokenizer.texts_to_sequences(df[colname])
     return pad_sequences(sequences, maxlen=maxlen)
 
-
+#def main():
 num_classes = 11
 
 # Seed for reproducibility
@@ -115,9 +147,32 @@ model.compile(loss='binary_crossentropy',
               optimizer='adam',
               metrics=['accuracy', jaccard_score_K])
 
-print('Train...')
-model.fit(X_train, y_train, batch_size=batch_size, epochs=15,
-          validation_data=(X_test, y_test))
+
+# Define early stopping with callbacks:
+early_stopping = EarlyStopping(monitor='val_jaccard_score_K', min_delta=0, patience=patience, verbose=1, mode='max')
+callbacks = [early_stopping, GetBest(monitor='val_jaccard_score_K', verbose=1, mode='max')]
+
+# Plot learning with tensorboard:
+tensorboard=True
+if tensorboard:
+    tb = TensorBoard(log_dir='../tensorboards/', histogram_freq=1, write_graph=True, write_images=False)
+    callbacks.append(tb)    
+
+
+logger.info('Training...')
+model.fit(X_train, y_train, batch_size=batch_size, epochs=100, validation_data=(X_test, y_test), callbacks = callbacks)
 score, acc = model.evaluate(X_test, y_test, batch_size=batch_size)
-print('Test score:', score)
-print('Test accuracy:', acc)
+logger.info('Dev vanilla score: %s' % score)
+logger.info('Dev vanilla accuracy: %s' % acc)
+
+# Evaluate
+probabilities = model.predict(X_test)
+y_hat = maxLikelihoodToBinary(probabilities)
+# sklearn.metrics.jaccard_similarity_score(y_true, y_pred, normalize=True, sample_weight=None)
+score = jaccard_similarity_score(y_test, y_hat, normalize=True, sample_weight=None)
+logger.info('sklearn jaccard_similarity_score: %s' % score)
+
+write_path = '/Users/seanmhendryx/NeuralNets/graduate-student-project-SMHendryx/data/E-C_en_pred.txt'
+saveSubmission(y_hat, write_path)
+
+
